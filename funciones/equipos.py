@@ -117,6 +117,7 @@ def mostrar_plantel():
     conexion.close()
 
 
+
 def agregar_jugador_equipo():
     id_equipo = int(input("ID del equipo: "))
     ci = input("Cédula del jugador: ")
@@ -139,7 +140,17 @@ def agregar_jugador_equipo():
         id_torneo, id_facultad = equipo
 
         cursor.execute(
-            "SELECT id_facultad FROM jugador WHERE ci = %s",
+            "SELECT estado FROM torneo WHERE id_torneo = %s",
+            (id_torneo,)
+        )
+        estado = cursor.fetchone()[0]
+
+        if estado != "inscripción":
+            print("No se pueden modificar planteles fuera del período de inscripción.")
+            return
+
+        cursor.execute(
+            "SELECT id_facultad, tipo FROM jugador WHERE ci = %s",
             (ci,)
         )
         jugador = cursor.fetchone()
@@ -160,12 +171,29 @@ def agregar_jugador_equipo():
             """,
             (id_equipo,)
         )
-
         cantidad = cursor.fetchone()[0]
 
         if cantidad >= 10:
             print("El equipo ya tiene 10 jugadores.")
             return
+
+        if jugador[1] in ("docente", "funcionario"):
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM equipo_jugador_torneo ejt
+                JOIN jugador j ON ejt.ci_jugador = j.ci
+                WHERE ejt.id_equipo = %s
+                AND j.tipo IN ('docente', 'funcionario')
+                """,
+                (id_equipo,)
+            )
+
+            cantidad = cursor.fetchone()[0]
+
+            if cantidad >= 2:
+                print("El equipo ya tiene 2 docentes o funcionarios.")
+                return
 
         sql = """
         INSERT INTO equipo_jugador_torneo
@@ -187,6 +215,47 @@ def agregar_jugador_equipo():
         conexion.close()
 
 
+def asignar_capitan():
+    id_equipo = input("ID del equipo: ")
+    ci = input("Cédula del nuevo capitán: ")
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        sql = """
+        SELECT *
+        FROM equipo_jugador_torneo
+        WHERE id_equipo = %s AND ci_jugador = %s
+        """
+
+        cursor.execute(sql, (id_equipo, ci))
+        jugador = cursor.fetchone()
+
+        if jugador is None:
+            print("El jugador no pertenece al equipo.")
+            return
+
+        sql = """
+        UPDATE equipo
+        SET ci_capitan = %s
+        WHERE id_equipo = %s
+        """
+
+        cursor.execute(sql, (ci, id_equipo))
+        conexion.commit()
+
+        print("Capitán asignado correctamente.")
+
+    except mysql.connector.Error as error:
+        conexion.rollback()
+        print("Error:", error)
+
+    finally:
+        cursor.close()
+        conexion.close()
+
+
 def menu_equipos():
     while True:
         print("\n===== GESTIÓN DE EQUIPOS =====")
@@ -195,7 +264,8 @@ def menu_equipos():
         print("3. Modificar equipo")
         print("4. Eliminar equipo")
         print("5. Mostrar plantel")
-        print("6. Agregar jugador al equipo")       
+        print("6. Agregar jugador al equipo") 
+        print("7. Asignar capitán")      
         print("0. Volver")
 
         opcion = input("Seleccione una opción: ")
@@ -217,6 +287,9 @@ def menu_equipos():
 
         elif opcion == "6":
             agregar_jugador_equipo()
+
+        elif opcion == "7":
+            asignar_capitan()
 
         elif opcion == "0":
             break
