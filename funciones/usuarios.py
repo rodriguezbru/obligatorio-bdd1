@@ -1,0 +1,39 @@
+
+import hashlib
+from getpass import getpass
+from database import conectar
+
+
+def iniciar_sesion():
+    print("\n===== INICIAR SESIÓN =====")
+
+    correo = input("Correo: ")
+    contrasena = getpass("Contraseña: ")
+
+    contrasena_hash = hashlib.sha256(
+        contrasena.encode("utf-8")
+    ).hexdigest()
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    cursor.execute(
+        """
+        SELECT rol
+        FROM login
+        WHERE correo = %s AND contrasena = %s
+        """,
+        (correo, contrasena_hash)
+    )
+
+    usuario = cursor.fetchone()
+
+    cursor.close()
+    conexion.close()
+
+    if usuario is None:
+        print("Correo o contraseña incorrectos.")
+        return None
+
+    print("Inicio de sesión correcto.")
+    return usuario[0]

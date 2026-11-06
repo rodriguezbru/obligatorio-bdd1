@@ -1,0 +1,180 @@
+
+import mysql.connector
+from database import conectar
+
+
+def mostrar_tarjetas():
+    id_partido = input("ID del partido: ")
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    cursor.execute(
+        """
+        SELECT id_tarjeta, ci_jugador, minuto, color
+        FROM tarjeta
+        WHERE id_partido = %s
+        ORDER BY minuto
+        """,
+        (id_partido,)
+    )
+
+    tarjetas = cursor.fetchall()
+
+    for tarjeta in tarjetas:
+        print(tarjeta)
+
+    cursor.close()
+    conexion.close()
+
+
+def agregar_tarjeta():
+    id_partido = input("ID del partido: ")
+    ci = input("Cédula del jugador: ")
+    minuto = int(input("Minuto de la tarjeta: "))
+    color = input("Color (amarilla/roja): ").lower()
+
+    if color not in ("amarilla", "roja"):
+        print("Color inválido.")
+        return
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        
+        cursor.execute(
+            """
+            INSERT INTO tarjeta
+            (id_partido, ci_jugador, minuto, color)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (id_partido, ci, minuto, color)
+        )
+
+        
+        if color == "roja":
+            sancionar_por_roja(cursor, id_partido, ci)
+
+        elif color == "amarilla":
+            sancionar_por_amarillas(cursor, id_partido, ci)
+
+        conexion.commit()
+
+
+        print("Tarjeta registrada correctamente.")
+
+    except mysql.connector.Error as error:
+        conexion.rollback()
+        print("Error:", error)
+
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+def sancionar_por_roja(cursor, id_partido, ci):
+    cursor.execute(
+        """
+        SELECT id_torneo, numero_fecha
+        FROM partido
+        WHERE id_partido = %s
+        """,
+        (id_partido,)
+    )
+
+    torneo, fecha = cursor.fetchone()
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM sancion_jugador
+        WHERE ci_jugador = %s
+        AND id_torneo = %s
+        AND motivo = 'roja'
+        AND numero_fecha_inicio = %s
+        """,
+        (ci, torneo, fecha + 1)
+    )
+
+    if cursor.fetchone()[0] == 0:
+        cursor.execute(
+            """
+            INSERT INTO sancion_jugador
+            (ci_jugador, id_torneo, motivo,
+             numero_fecha_inicio, cantidad_fechas)
+            VALUES (%s, %s, 'roja', %s, 1)
+            """,
+            (ci, torneo, fecha + 1)
+        )
+
+
+def sancionar_por_amarillas(cursor, id_partido, ci):
+    cursor.execute(
+        """
+        SELECT id_torneo, numero_fecha
+        FROM partido
+        WHERE id_partido = %s
+        """,
+        (id_partido,)
+    )
+
+    torneo, fecha = cursor.fetchone()
+
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM tarjeta t
+        JOIN partido p ON t.id_partido = p.id_partido
+        WHERE t.ci_jugador = %s
+        AND p.id_torneo = %s
+        AND t.color = 'amarilla'
+        """
+        ,
+        (ci, torneo)
+    )
+
+    cantidad = cursor.fetchone()[0]
+
+    if cantidad > 0 and cantidad % 3 == 0:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM sancion_jugador
+            WHERE ci_jugador = %s
+            AND id_torneo = %s
+            AND motivo = 'acumulación de amarillas'
+            AND numero_fecha_inicio = %s
+            """,
+            (ci, torneo, fecha + 1)
+        )
+
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                """
+                INSERT INTO sancion_jugador
+                (ci_jugador, id_torneo, motivo,
+                 numero_fecha_inicio, cantidad_fechas)
+                VALUES (%s, %s, 'acumulación de amarillas', %s, 1)
+                """,
+                (ci, torneo, fecha + 1)
+            )
+
+
+def menu_tarjetas():
+    while True:
+        print("\n===== TARJETAS =====")
+        print("1. Mostrar tarjetas")
+        print("2. Agregar tarjeta")
+        print("0. Volver")
+
+        opcion = input("Opción: ")
+
+        if opcion == "1":
+            mostrar_tarjetas()
+        elif opcion == "2":
+            agregar_tarjeta()
+        elif opcion == "0":
+            break
+        else:
+            print("Opción inválida")
