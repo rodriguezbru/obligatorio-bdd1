@@ -17,6 +17,73 @@ def mostrar_partidos():
     conexion.close()
 
 
+def validar_partido(cursor, torneo, fecha, local, visitante,
+                   dia, turno, cancha, complejo):
+
+    if local == visitante:
+        print("Un equipo no puede jugar contra sí mismo.")
+        return False
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM partido
+        WHERE id_torneo = %s
+        AND numero_fecha = %s
+        AND estado != 'cancelado'
+        AND (
+            id_equipo_local IN (%s, %s)
+            OR id_equipo_visitante IN (%s, %s)
+        )
+    """, (torneo, fecha, local, visitante, local, visitante))
+
+    if cursor.fetchone()[0] > 0:
+        print("Uno de los equipos ya juega en esta fecha.")
+        return False
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM partido
+        WHERE dia = %s
+        AND id_turno = %s
+        AND nombre_cancha = %s
+        AND id_complejo = %s
+        AND estado != 'cancelado'
+    """, (dia, turno, cancha, complejo))
+
+    if cursor.fetchone()[0] > 0:
+        print("La cancha ya está ocupada en ese horario.")
+        return False
+
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM partido
+        WHERE id_torneo = %s
+        AND estado != 'cancelado'
+        AND (
+            (id_equipo_local = %s AND id_equipo_visitante = %s)
+            OR
+            (id_equipo_local = %s AND id_equipo_visitante = %s)
+        )
+    """, (torneo, local, visitante, visitante, local))
+
+    if cursor.fetchone()[0] > 0:
+        print("Estos equipos ya se enfrentaron.")
+        return False
+
+    for equipo in (local, visitante):
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM equipo_jugador_torneo
+            WHERE id_equipo = %s
+            AND id_torneo = %s
+        """, (equipo, torneo))
+
+        if cursor.fetchone()[0] < 5:
+            print("Uno de los equipos tiene menos de 5 jugadores.")
+            return False
+
+    return True
+
 def agregar_partido():
     torneo = int(input("ID del torneo: "))
     fecha = int(input("Número de fecha: "))
@@ -31,6 +98,13 @@ def agregar_partido():
     cursor = conexion.cursor()
 
     try:
+        
+        if not validar_partido(
+            cursor, torneo, fecha, local, visitante,
+            dia, turno, cancha, complejo
+        ):
+            return
+
         sql = """
         INSERT INTO partido
         (id_torneo, numero_fecha, id_equipo_local,
