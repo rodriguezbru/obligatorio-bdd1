@@ -1,6 +1,6 @@
 from funciones.equipos import menu_equipos
 from funciones.jugadores import menu_jugadores
-
+from funciones.partidos import menu_partidos
 
 def mostrar_menu():
     print("\n===== TORNEO INTERFACULTADES =====")
@@ -25,7 +25,7 @@ def main():
             menu_equipos()
 
         elif opcion == "3":
-            print("Gestión de partidos")
+            menu_partidos()
 
         elif opcion == "4":
             print("Gestión de complejos y canchas")
