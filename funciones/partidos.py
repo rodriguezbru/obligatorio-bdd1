@@ -3,18 +3,50 @@ import mysql.connector
 from database import conectar
 
 
+
 def mostrar_partidos():
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute("SELECT * FROM partido")
+    sql = """
+    SELECT
+        p.numero_fecha,
+        p.dia,
+        t.hora_inicio,
+        el.nombre,
+        ev.nombre,
+        p.nombre_cancha,
+        c.nombre,
+        p.estado
+    FROM partido p
+    JOIN equipo el
+        ON p.id_equipo_local = el.id_equipo
+    JOIN equipo ev
+        ON p.id_equipo_visitante = ev.id_equipo
+    JOIN turno t
+        ON p.id_turno = t.id_turno
+    JOIN complejo c
+        ON p.id_complejo = c.id_complejo
+    ORDER BY p.numero_fecha, t.hora_inicio
+    """
+
+    cursor.execute(sql)
     partidos = cursor.fetchall()
 
+    print("\n===== PARTIDOS DEL TORNEO =====")
+
     for partido in partidos:
-        print(partido)
+        fecha, dia, hora, local, visitante, cancha, complejo, estado = partido
+
+        print(f"\nFecha {fecha} - {dia}")
+        print(f"Hora: {hora}")
+        print(f"{local} vs {visitante}")
+        print(f"Lugar: {complejo} - {cancha}")
+        print(f"Estado: {estado}")
 
     cursor.close()
     conexion.close()
+
 
 
 def validar_partido(cursor, torneo, fecha, local, visitante,

@@ -29,19 +29,44 @@ def agregar_jugador():
     cursor.close()
     conexion.close()
 
+
 def mostrar_jugadores():
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute("SELECT * FROM jugador")
+    sql = """
+    SELECT
+        j.ci,
+        j.nombre,
+        j.apellido,
+        j.email,
+        j.fecha_nacimiento,
+        f.nombre,
+        j.tipo
+    FROM jugador j
+    JOIN facultad f
+        ON j.id_facultad = f.id_facultad
+    ORDER BY j.apellido, j.nombre
+    """
 
+    cursor.execute(sql)
     jugadores = cursor.fetchall()
 
+    print("\n===== LISTA DE JUGADORES =====")
+
     for jugador in jugadores:
-        print(jugador)
+        ci, nombre, apellido, email, nacimiento, facultad, tipo = jugador
+
+        print(f"\n{nombre} {apellido}")
+        print(f"Cédula: {ci}")
+        print(f"Email: {email}")
+        print(f"Fecha de nacimiento: {nacimiento}")
+        print(f"Facultad: {facultad}")
+        print(f"Tipo: {tipo}")
 
     cursor.close()
     conexion.close()
+
 
 
 

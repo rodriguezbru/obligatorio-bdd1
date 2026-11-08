@@ -2,19 +2,45 @@ import mysql.connector
 from database import conectar
 
 
+
 def mostrar_equipos():
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute("SELECT * FROM equipo")
+    sql = """
+    SELECT
+        e.id_equipo,
+        e.nombre,
+        f.nombre,
+        j.nombre,
+        j.apellido
+    FROM equipo e
+    JOIN facultad f
+        ON e.id_facultad = f.id_facultad
+    LEFT JOIN jugador j
+        ON e.ci_capitan = j.ci
+    ORDER BY e.id_equipo
+    """
 
+    cursor.execute(sql)
     equipos = cursor.fetchall()
 
+    print("\n===== EQUIPOS DEL TORNEO =====")
+
     for equipo in equipos:
-        print(equipo)
+        id_equipo, nombre, facultad, nombre_capitan, apellido_capitan = equipo
+
+        print(f"\nEquipo {id_equipo}: {nombre}")
+        print(f"Facultad: {facultad}")
+
+        if nombre_capitan is not None:
+            print(f"Capitán: {nombre_capitan} {apellido_capitan}")
+        else:
+            print("Capitán: Sin asignar")
 
     cursor.close()
     conexion.close()
+
 
 
 def agregar_equipo():
