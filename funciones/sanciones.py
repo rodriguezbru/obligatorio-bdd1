@@ -7,90 +7,172 @@ def mostrar_sanciones():
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute("""
-        SELECT s.id_sancion, j.nombre, j.apellido,
-               s.motivo, s.numero_fecha_inicio,
-               s.cantidad_fechas
-        FROM sancion_jugador s
-        JOIN jugador j ON s.ci_jugador = j.ci
-        ORDER BY s.id_sancion
-    """)
+    try:
+        cursor.execute("""
+            SELECT s.id_sancion, j.nombre, j.apellido,
+                   s.motivo, s.numero_fecha_inicio,
+                   s.cantidad_fechas
+            FROM sancion_jugador s
+            JOIN jugador j ON s.ci_jugador = j.ci
+            ORDER BY s.id_sancion
+        """)
 
-    sanciones = cursor.fetchall()
+        sanciones = cursor.fetchall()
 
-    print("\n===== SANCIONES =====")
+        print("\n===== SANCIONES =====")
 
-    for sancion in sanciones:
-        id_sancion, nombre, apellido, motivo, fecha, cantidad = sancion
+        if len(sanciones) == 0:
+            print("No hay sanciones registradas.")
 
-        print(f"\nSanción {id_sancion}")
-        print(f"Jugador: {nombre} {apellido}")
-        print(f"Motivo: {motivo}")
-        print(f"Desde la fecha: {fecha}")
-        print(f"Cantidad de fechas: {cantidad}")
+        for sancion in sanciones:
+            id_sancion, nombre, apellido, motivo, fecha, cantidad = sancion
 
-    cursor.close()
-    conexion.close()
+            print(f"\nSanción {id_sancion}")
+            print(f"Jugador: {nombre} {apellido}")
+            print(f"Motivo: {motivo}")
+            print(f"Desde la fecha: {fecha}")
+            print(f"Cantidad de fechas: {cantidad}")
+
+    finally:
+        cursor.close()
+        conexion.close()
 
 
 def agregar_sancion():
-    ci = input("Cédula del jugador: ")
-    torneo = int(input("ID del torneo: "))
-    motivo = input("Motivo (roja/acumulación de amarillas/disciplinaria): ")
-    fecha = int(input("Fecha de inicio de sanción: "))
-    cantidad = int(input("Cantidad de fechas: "))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
     try:
-        cursor.execute("""
-            INSERT INTO sancion_jugador
-            (ci_jugador, id_torneo, motivo,
-             numero_fecha_inicio, cantidad_fechas)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (ci, torneo, motivo, fecha, cantidad))
+        torneo = int(input("ID del torneo: "))
+        ci = input("Cédula del jugador: ")
 
-        conexion.commit()
-        print("Sanción agregada correctamente.")
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-    except mysql.connector.Error as error:
-        conexion.rollback()
-        print("Error:", error)
+        try:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM equipo_jugador_torneo
+                WHERE ci_jugador = %s
+                  AND id_torneo = %s
+            """, (ci, torneo))
 
-    finally:
-        cursor.close()
-        conexion.close()
+            if cursor.fetchone()[0] == 0:
+                print("El jugador no está inscrito en ese torneo.")
+                return
+
+            fecha = int(input("Fecha de inicio de sanción: "))
+            cantidad = int(input("Cantidad de fechas: "))
+
+            if cantidad <= 0:
+                print("La cantidad de fechas debe ser mayor que cero.")
+                return
+
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM fecha_torneo
+                WHERE id_torneo = %s
+                  AND numero_fecha = %s
+            """, (torneo, fecha))
+
+            if cursor.fetchone()[0] == 0:
+                print("La fecha indicada no existe en ese torneo.")
+                return
+
+            cursor.execute("""
+                SELECT MAX(numero_fecha)
+                FROM fecha_torneo
+                WHERE id_torneo = %s
+            """, (torneo,))
+
+            ultima_fecha = cursor.fetchone()[0]
+
+            if fecha + cantidad - 1 > ultima_fecha:
+                print("La sanción supera las fechas registradas del torneo.")
+                return
+
+            cursor.execute("""
+                INSERT INTO sancion_jugador
+                (ci_jugador, id_torneo, motivo,
+                 numero_fecha_inicio, cantidad_fechas)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (ci, torneo, "disciplinaria", fecha, cantidad))
+
+            conexion.commit()
+            print("Sanción disciplinaria agregada correctamente.")
+
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
+
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar números válidos.")
 
 
 def modificar_sancion():
-    id_sancion = input("ID de la sanción: ")
-    cantidad = int(input("Nueva cantidad de fechas: "))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
     try:
-        cursor.execute("""
-            UPDATE sancion_jugador
-            SET cantidad_fechas = %s
-            WHERE id_sancion = %s
-        """, (cantidad, id_sancion))
+        id_sancion = int(input("ID de la sanción: "))
 
-        conexion.commit()
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-        if cursor.rowcount > 0:
+        try:
+            cursor.execute("""
+                SELECT motivo, id_torneo, numero_fecha_inicio
+                FROM sancion_jugador
+                WHERE id_sancion = %s
+            """, (id_sancion,))
+
+            sancion = cursor.fetchone()
+
+            if sancion is None:
+                print("La sanción no existe.")
+                return
+
+            motivo, torneo, fecha = sancion
+
+            if motivo != "disciplinaria":
+                print("No se pueden modificar sanciones automáticas.")
+                return
+
+            cantidad = int(input("Nueva cantidad de fechas: "))
+
+            if cantidad <= 0:
+                print("La cantidad debe ser mayor que cero.")
+                return
+
+            cursor.execute("""
+                SELECT MAX(numero_fecha)
+                FROM fecha_torneo
+                WHERE id_torneo = %s
+            """, (torneo,))
+
+            ultima_fecha = cursor.fetchone()[0]
+
+            if ultima_fecha is None or fecha + cantidad - 1 > ultima_fecha:
+                print("La sanción supera las fechas registradas.")
+                return
+
+            cursor.execute("""
+                UPDATE sancion_jugador
+                SET cantidad_fechas = %s
+                WHERE id_sancion = %s
+            """, (cantidad, id_sancion))
+
+            conexion.commit()
             print("Sanción modificada correctamente.")
-        else:
-            print("No se encontró la sanción o no hubo cambios.")
 
-    except mysql.connector.Error as error:
-        conexion.rollback()
-        print("Error:", error)
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
 
-    finally:
-        cursor.close()
-        conexion.close()
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar números válidos.")
 
 
 def eliminar_sancion():
@@ -100,17 +182,29 @@ def eliminar_sancion():
     cursor = conexion.cursor()
 
     try:
-        cursor.execute(
-            "DELETE FROM sancion_jugador WHERE id_sancion = %s",
-            (id_sancion,)
-        )
+        cursor.execute("""
+            SELECT motivo
+            FROM sancion_jugador
+            WHERE id_sancion = %s
+        """, (id_sancion,))
+
+        sancion = cursor.fetchone()
+
+        if sancion is None:
+            print("La sanción no existe.")
+            return
+
+        if sancion[0] != "disciplinaria":
+            print("No se pueden eliminar sanciones automáticas.")
+            return
+
+        cursor.execute("""
+            DELETE FROM sancion_jugador
+            WHERE id_sancion = %s
+        """, (id_sancion,))
 
         conexion.commit()
-
-        if cursor.rowcount > 0:
-            print("Sanción eliminada correctamente.")
-        else:
-            print("No se encontró la sanción.")
+        print("Sanción eliminada correctamente.")
 
     except mysql.connector.Error as error:
         conexion.rollback()
@@ -134,13 +228,18 @@ def menu_sanciones():
 
         if opcion == "1":
             mostrar_sanciones()
+
         elif opcion == "2":
             agregar_sancion()
+
         elif opcion == "3":
             modificar_sancion()
+
         elif opcion == "4":
             eliminar_sancion()
+
         elif opcion == "0":
             break
+
         else:
             print("Opción inválida")
