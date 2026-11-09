@@ -11,7 +11,7 @@ from funciones.partidos import mostrar_partidos
 from funciones.goles import mostrar_resultado
 from funciones.complejos import menu_complejos
 from funciones.sanciones import menu_sanciones
-
+from funciones.reportes import menu_reportes
 
 def mostrar_menu():
     print("\n===== TORNEO INTERFACULTADES =====")
@@ -74,7 +74,7 @@ def main():
             menu_sanciones()
 
         elif opcion == "6":
-            print("Reportes")
+            menu_reportes()
 
         elif opcion == "7":
             menu_planillas()
