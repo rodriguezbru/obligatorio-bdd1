@@ -1,6 +1,24 @@
+
 import mysql.connector
 from database import conectar
 
+
+def verificar_inscripcion(cursor, id_torneo):
+    cursor.execute(
+        "SELECT estado FROM torneo WHERE id_torneo = %s",
+        (id_torneo,)
+    )
+    torneo = cursor.fetchone()
+
+    if torneo is None:
+        print("El torneo no existe.")
+        return False
+
+    if torneo[0] != "inscripción":
+        print("No se pueden modificar equipos ni planteles fuera del período de inscripción.")
+        return False
+
+    return True
 
 
 def mostrar_equipos():
@@ -15,10 +33,8 @@ def mostrar_equipos():
         j.nombre,
         j.apellido
     FROM equipo e
-    JOIN facultad f
-        ON e.id_facultad = f.id_facultad
-    LEFT JOIN jugador j
-        ON e.ci_capitan = j.ci
+    JOIN facultad f ON e.id_facultad = f.id_facultad
+    LEFT JOIN jugador j ON e.ci_capitan = j.ci
     ORDER BY e.id_equipo
     """
 
@@ -42,79 +58,130 @@ def mostrar_equipos():
     conexion.close()
 
 
-
 def agregar_equipo():
-    nombre = input("Nombre del equipo: ")
-    torneo = int(input("ID del torneo: "))
-    facultad = int(input("ID de facultad: "))
+    try:
+        torneo = int(input("ID del torneo: "))
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-    conexion = conectar()
-    cursor = conexion.cursor()
+        try:
+            if not verificar_inscripcion(cursor, torneo):
+                return
 
-    sql = """
-    INSERT INTO equipo
-    (nombre, id_torneo, id_facultad, ci_capitan)
-    VALUES (%s, %s, %s, NULL)
-    """
+            nombre = input("Nombre del equipo: ")
+            facultad = int(input("ID de facultad: "))
 
-    valores = (nombre, torneo, facultad)
+            sql = """
+            INSERT INTO equipo
+            (nombre, id_torneo, id_facultad, ci_capitan)
+            VALUES (%s, %s, %s, NULL)
+            """
 
-    cursor.execute(sql, valores)
-    conexion.commit()
+            cursor.execute(sql, (nombre, torneo, facultad))
+            conexion.commit()
 
-    print("Equipo agregado correctamente.")
+            print("Equipo agregado correctamente.")
 
-    cursor.close()
-    conexion.close()
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
+
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar un número válido.")
+
 
 def modificar_equipo():
-    id_equipo = input("ID del equipo a modificar: ")
-    nombre = input("Nuevo nombre del equipo: ")
+    try:
+        id_equipo = int(input("ID del equipo a modificar: "))
 
-    conexion = conectar()
-    cursor = conexion.cursor()
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-    sql = """
-    UPDATE equipo
-    SET nombre = %s
-    WHERE id_equipo = %s
-    """
+        try:
+            cursor.execute(
+                "SELECT id_torneo FROM equipo WHERE id_equipo = %s",
+                (id_equipo,)
+            )
+            equipo = cursor.fetchone()
 
-    cursor.execute(sql, (nombre, id_equipo))
-    conexion.commit()
+            if equipo is None:
+                print("El equipo no existe.")
+                return
 
-    if cursor.rowcount > 0:
-        print("Equipo modificado correctamente.")
-    else:
-        print("No se encontró el equipo o ya tenía ese nombre.")
+            if not verificar_inscripcion(cursor, equipo[0]):
+                return
 
-    cursor.close()
-    conexion.close()
+            nombre = input("Nuevo nombre del equipo: ")
 
+            sql = """
+            UPDATE equipo
+            SET nombre = %s
+            WHERE id_equipo = %s
+            """
+
+            cursor.execute(sql, (nombre, id_equipo))
+            conexion.commit()
+
+            if cursor.rowcount > 0:
+                print("Equipo modificado correctamente.")
+            else:
+                print("El equipo ya tenía ese nombre.")
+
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
+
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar un ID válido.")
 
 
 def eliminar_equipo():
-    id_equipo = input("ID del equipo a eliminar: ")
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
     try:
-        sql = "DELETE FROM equipo WHERE id_equipo = %s"
-        cursor.execute(sql, (id_equipo,))
-        conexion.commit()
+        id_equipo = int(input("ID del equipo a eliminar: "))
 
-        if cursor.rowcount > 0:
+        conexion = conectar()
+        cursor = conexion.cursor()
+
+        try:
+            cursor.execute(
+                "SELECT id_torneo FROM equipo WHERE id_equipo = %s",
+                (id_equipo,)
+            )
+            equipo = cursor.fetchone()
+
+            if equipo is None:
+                print("El equipo no existe.")
+                return
+
+            if not verificar_inscripcion(cursor, equipo[0]):
+                return
+
+            cursor.execute(
+                "DELETE FROM equipo WHERE id_equipo = %s",
+                (id_equipo,)
+            )
+            conexion.commit()
+
             print("Equipo eliminado correctamente.")
-        else:
-            print("No se encontró el equipo.")
 
-    except mysql.connector.Error as error:
-        conexion.rollback()
-        print("No se pudo eliminar el equipo:", error)
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("No se pudo eliminar el equipo:", error)
 
-    cursor.close()
-    conexion.close()
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar un ID válido.")
 
 
 def mostrar_plantel():
@@ -124,11 +191,13 @@ def mostrar_plantel():
     cursor = conexion.cursor()
 
     sql = """
-    SELECT j.ci, j.nombre, j.apellido,
-           ejt.numero_camiseta
+    SELECT
+        j.ci,
+        j.nombre,
+        j.apellido,
+        ejt.numero_camiseta
     FROM equipo_jugador_torneo ejt
-    JOIN jugador j
-        ON ejt.ci_jugador = j.ci
+    JOIN jugador j ON ejt.ci_jugador = j.ci
     WHERE ejt.id_equipo = %s
     ORDER BY ejt.numero_camiseta
     """
@@ -136,126 +205,130 @@ def mostrar_plantel():
     cursor.execute(sql, (id_equipo,))
     jugadores = cursor.fetchall()
 
-    for jugador in jugadores:
-        print(jugador)
+    print("\n===== PLANTEL DEL EQUIPO =====")
+
+    if len(jugadores) == 0:
+        print("No hay jugadores registrados.")
+    else:
+        for jugador in jugadores:
+            print(jugador)
 
     cursor.close()
     conexion.close()
 
 
-
 def agregar_jugador_equipo():
-    id_equipo = int(input("ID del equipo: "))
-    ci = input("Cédula del jugador: ")
-    numero = int(input("Número de camiseta: "))
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
     try:
-        cursor.execute(
-            "SELECT id_torneo, id_facultad FROM equipo WHERE id_equipo = %s",
-            (id_equipo,)
-        )
-        equipo = cursor.fetchone()
+        id_equipo = int(input("ID del equipo: "))
 
-        if equipo is None:
-            print("El equipo no existe.")
-            return
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-        id_torneo, id_facultad = equipo
-
-        cursor.execute(
-            "SELECT estado FROM torneo WHERE id_torneo = %s",
-            (id_torneo,)
-        )
-        estado = cursor.fetchone()[0]
-
-        if estado != "inscripción":
-            print("No se pueden modificar planteles fuera del período de inscripción.")
-            return
-
-        cursor.execute(
-            "SELECT id_facultad, tipo FROM jugador WHERE ci = %s",
-            (ci,)
-        )
-        jugador = cursor.fetchone()
-
-        if jugador is None:
-            print("El jugador no existe.")
-            return
-
-        if jugador[0] != id_facultad:
-            print("El jugador no pertenece a la facultad del equipo.")
-            return
-
-        
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM equipo_jugador_torneo
-            WHERE ci_jugador = %s
-            AND id_torneo = %s
-        """, (ci, id_torneo))
-
-        if cursor.fetchone()[0] > 0:
-            print("El jugador ya está inscrito en un equipo de este torneo.")
-            return
-
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM equipo_jugador_torneo
-            WHERE id_equipo = %s
-            """,
-            (id_equipo,)
-        )
-        cantidad = cursor.fetchone()[0]
-
-        if cantidad >= 10:
-            print("El equipo ya tiene 10 jugadores.")
-            return
-
-        if jugador[1] in ("docente", "funcionario"):
+        try:
             cursor.execute(
-                """
-                SELECT COUNT(*)
-                FROM equipo_jugador_torneo ejt
-                JOIN jugador j ON ejt.ci_jugador = j.ci
-                WHERE ejt.id_equipo = %s
-                AND j.tipo IN ('docente', 'funcionario')
-                """,
+                "SELECT id_torneo, id_facultad FROM equipo WHERE id_equipo = %s",
                 (id_equipo,)
             )
+            equipo = cursor.fetchone()
+
+            if equipo is None:
+                print("El equipo no existe.")
+                return
+
+            id_torneo, id_facultad = equipo
+
+            if not verificar_inscripcion(cursor, id_torneo):
+                return
+
+            ci = input("Cédula del jugador: ")
+            numero = int(input("Número de camiseta: "))
+
+            cursor.execute(
+                "SELECT id_facultad, tipo FROM jugador WHERE ci = %s",
+                (ci,)
+            )
+            jugador = cursor.fetchone()
+
+            if jugador is None:
+                print("El jugador no existe.")
+                return
+
+            if jugador[0] != id_facultad:
+                print("El jugador no pertenece a la facultad del equipo.")
+                return
+
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM equipo_jugador_torneo
+                WHERE ci_jugador = %s
+                AND id_torneo = %s
+            """, (ci, id_torneo))
+
+            if cursor.fetchone()[0] > 0:
+                print("El jugador ya está inscrito en un equipo de este torneo.")
+                return
+
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM equipo_jugador_torneo
+                WHERE id_equipo = %s
+            """, (id_equipo,))
 
             cantidad = cursor.fetchone()[0]
 
-            if cantidad >= 2:
-                print("El equipo ya tiene 2 docentes o funcionarios.")
+            if cantidad >= 10:
+                print("El equipo ya tiene 10 jugadores.")
                 return
 
-        sql = """
-        INSERT INTO equipo_jugador_torneo
-        (id_equipo, ci_jugador, id_torneo, numero_camiseta)
-        VALUES (%s, %s, %s, %s)
-        """
+            if jugador[1] in ("docente", "funcionario"):
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM equipo_jugador_torneo ejt
+                    JOIN jugador j ON ejt.ci_jugador = j.ci
+                    WHERE ejt.id_equipo = %s
+                    AND j.tipo IN ('docente', 'funcionario')
+                """, (id_equipo,))
 
-        cursor.execute(sql, (id_equipo, ci, id_torneo, numero))
-        conexion.commit()
+                if cursor.fetchone()[0] >= 2:
+                    print("El equipo ya tiene 2 docentes o funcionarios.")
+                    return
 
-        print("Jugador inscrito correctamente.")
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM equipo_jugador_torneo
+                WHERE id_equipo = %s
+                AND numero_camiseta = %s
+            """, (id_equipo, numero))
 
-    except mysql.connector.Error as error:
-        conexion.rollback()
-        print("Error:", error)
+            if cursor.fetchone()[0] > 0:
+                print("Ese número de camiseta ya está ocupado.")
+                return
 
-    finally:
-        cursor.close()
-        conexion.close()
+            sql = """
+            INSERT INTO equipo_jugador_torneo
+            (id_equipo, ci_jugador, id_torneo, numero_camiseta)
+            VALUES (%s, %s, %s, %s)
+            """
+
+            cursor.execute(sql, (id_equipo, ci, id_torneo, numero))
+            conexion.commit()
+
+            print("Jugador inscrito correctamente.")
+
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
+
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("Debés ingresar un número válido.")
 
 
 def eliminar_jugador_equipo():
     id_equipo = input("ID del equipo: ")
-    ci = input("Cédula del jugador a quitar: ")
 
     conexion = conectar()
     cursor = conexion.cursor()
@@ -280,8 +353,22 @@ def eliminar_jugador_equipo():
             print("No se puede modificar el plantel fuera de inscripción.")
             return
 
+        ci = input("Cédula del jugador a quitar: ")
+
         if ci == capitan:
             print("Primero tenés que asignar otro capitán.")
+            return
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM equipo_jugador_torneo
+            WHERE id_equipo = %s
+        """, (id_equipo,))
+
+        cantidad = cursor.fetchone()[0]
+
+        if cantidad <= 5:
+            print("No se puede quitar un jugador porque el plantel debe tener al menos 5 jugadores.")
             return
 
         cursor.execute("""
@@ -306,36 +393,54 @@ def eliminar_jugador_equipo():
         cursor.close()
         conexion.close()
 
+
 def asignar_capitan():
     id_equipo = input("ID del equipo: ")
-    ci = input("Cédula del nuevo capitán: ")
 
     conexion = conectar()
     cursor = conexion.cursor()
 
     try:
-        sql = """
-        SELECT *
-        FROM equipo_jugador_torneo
-        WHERE id_equipo = %s AND ci_jugador = %s
-        """
+        cursor.execute("""
+            SELECT e.id_torneo, t.estado
+            FROM equipo e
+            JOIN torneo t ON e.id_torneo = t.id_torneo
+            WHERE e.id_equipo = %s
+        """, (id_equipo,))
 
-        cursor.execute(sql, (id_equipo, ci))
+        equipo = cursor.fetchone()
+
+        if equipo is None:
+            print("El equipo no existe.")
+            return
+
+        if equipo[1] != "inscripción":
+            print("No se puede cambiar el capitán fuera del período de inscripción.")
+            return
+
+        ci = input("Cédula del nuevo capitán: ")
+
+        cursor.execute("""
+            SELECT *
+            FROM equipo_jugador_torneo
+            WHERE id_equipo = %s
+            AND id_torneo = %s
+            AND ci_jugador = %s
+        """, (id_equipo, equipo[0], ci))
+
         jugador = cursor.fetchone()
 
         if jugador is None:
             print("El jugador no pertenece al equipo.")
             return
 
-        sql = """
-        UPDATE equipo
-        SET ci_capitan = %s
-        WHERE id_equipo = %s
-        """
+        cursor.execute("""
+            UPDATE equipo
+            SET ci_capitan = %s
+            WHERE id_equipo = %s
+        """, (ci, id_equipo))
 
-        cursor.execute(sql, (ci, id_equipo))
         conexion.commit()
-
         print("Capitán asignado correctamente.")
 
     except mysql.connector.Error as error:
@@ -355,9 +460,9 @@ def menu_equipos():
         print("3. Modificar equipo")
         print("4. Eliminar equipo")
         print("5. Mostrar plantel")
-        print("6. Agregar jugador al equipo") 
-        print("7. Asignar capitán") 
-        print("8. Quitar jugador del equipo")     
+        print("6. Agregar jugador al equipo")
+        print("7. Asignar capitán")
+        print("8. Quitar jugador del equipo")
         print("0. Volver")
 
         opcion = input("Seleccione una opción: ")

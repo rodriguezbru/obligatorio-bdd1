@@ -1,5 +1,6 @@
 
 import hashlib
+import mysql.connector
 from getpass import getpass
 from database import conectar
 
@@ -14,26 +15,36 @@ def iniciar_sesion():
         contrasena.encode("utf-8")
     ).hexdigest()
 
-    conexion = conectar()
-    cursor = conexion.cursor()
+    conexion = None
+    cursor = None
 
-    cursor.execute(
-        """
-        SELECT rol
-        FROM login
-        WHERE correo = %s AND contrasena = %s
-        """,
-        (correo, contrasena_hash)
-    )
+    try:
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-    usuario = cursor.fetchone()
+        cursor.execute("""
+            SELECT rol
+            FROM login
+            WHERE correo = %s
+              AND contrasena = %s
+        """, (correo, contrasena_hash))
 
-    cursor.close()
-    conexion.close()
+        usuario = cursor.fetchone()
 
-    if usuario is None:
-        print("Correo o contraseña incorrectos.")
+        if usuario is None:
+            print("Correo o contraseña incorrectos.")
+            return None
+
+        print("Inicio de sesión correcto.")
+        return usuario[0]
+
+    except mysql.connector.Error as error:
+        print("Error de conexión con MySQL:", error)
         return None
 
-    print("Inicio de sesión correcto.")
-    return usuario[0]
+    finally:
+        if cursor is not None:
+            cursor.close()
+
+        if conexion is not None:
+            conexion.close()

@@ -24,7 +24,10 @@ def validar_plazo_gol(id_partido):
 
         estado, dia, hora_fin = partido
 
-        # MySQL puede devolver las horas como timedelta
+        if estado != "jugado":
+            print("Solo se pueden registrar o modificar goles de partidos jugados.")
+            return False
+
         if isinstance(hora_fin, timedelta):
             fin = datetime.combine(dia, datetime.min.time()) + hora_fin
         else:
@@ -36,12 +39,8 @@ def validar_plazo_gol(id_partido):
             print("El partido todavía no terminó.")
             return False
 
-        if estado == "cancelado":
-            print("No se pueden registrar goles en un partido cancelado.")
-            return False
-
-        if estado == "jugado" and ahora > fin + timedelta(hours=48):
-            print("Pasaron más de 48 horas. No se puede corregir el resultado.")
+        if ahora > fin + timedelta(hours=48):
+            print("Pasaron más de 48 horas. No se pueden modificar los goles.")
             return False
 
         return True
@@ -50,30 +49,34 @@ def validar_plazo_gol(id_partido):
         cursor.close()
         conexion.close()
 
+
 def mostrar_goles():
     id_partido = input("ID del partido: ")
 
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute(
-        """
-        SELECT id_gol, ci_jugador, minuto, autogol
-        FROM gol
-        WHERE id_partido = %s
-        ORDER BY minuto
-        """,
-        (id_partido,)
-    )
+    try:
+        cursor.execute("""
+            SELECT id_gol, ci_jugador, minuto, autogol
+            FROM gol
+            WHERE id_partido = %s
+            ORDER BY minuto
+        """, (id_partido,))
 
-    goles = cursor.fetchall()
+        goles = cursor.fetchall()
 
-    for gol in goles:
-        print(gol)
+        print("\n===== GOLES DEL PARTIDO =====")
 
-    cursor.close()
-    conexion.close()
+        if len(goles) == 0:
+            print("No hay goles registrados.")
+        else:
+            for gol in goles:
+                print(gol)
 
+    finally:
+        cursor.close()
+        conexion.close()
 
 
 def agregar_gol():
@@ -86,51 +89,52 @@ def agregar_gol():
 
     try:
         minuto = int(input("Minuto del gol: "))
-    except ValueError:
-        print("El minuto debe ser un número.")
-        return
 
-    if minuto < 0:
-        print("El minuto no puede ser negativo.")
-        return
-
-    autogol = input("¿Fue autogol? (s/n): ").lower()
-
-    if autogol not in ("s", "n"):
-        print("Opción inválida.")
-        return
-
-    conexion = conectar()
-    cursor = conexion.cursor()
-
-    try:
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM planilla_partido
-            WHERE id_partido = %s
-            AND ci_jugador = %s
-        """, (id_partido, ci))
-
-        if cursor.fetchone()[0] == 0:
-            print("El jugador no figura en la planilla del partido.")
+        if minuto < 0:
+            print("El minuto no puede ser negativo.")
             return
 
-        cursor.execute("""
-            INSERT INTO gol
-            (id_partido, ci_jugador, minuto, autogol)
-            VALUES (%s, %s, %s, %s)
-        """, (id_partido, ci, minuto, autogol == "s"))
+        autogol = input("¿Fue autogol? (s/n): ").lower()
 
-        conexion.commit()
-        print("Gol registrado correctamente.")
+        if autogol not in ("s", "n"):
+            print("Opción inválida.")
+            return
 
-    except mysql.connector.Error as error:
-        conexion.rollback()
-        print("Error:", error)
+        conexion = conectar()
+        cursor = conexion.cursor()
 
-    finally:
-        cursor.close()
-        conexion.close()
+        try:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM planilla_partido
+                WHERE id_partido = %s
+                AND ci_jugador = %s
+            """, (id_partido, ci))
+
+            if cursor.fetchone()[0] == 0:
+                print("El jugador no figura en la planilla del partido.")
+                return
+
+            cursor.execute("""
+                INSERT INTO gol
+                (id_partido, ci_jugador, minuto, autogol)
+                VALUES (%s, %s, %s, %s)
+            """, (id_partido, ci, minuto, autogol == "s"))
+
+            conexion.commit()
+            print("Gol registrado correctamente.")
+
+        except mysql.connector.Error as error:
+            conexion.rollback()
+            print("Error:", error)
+
+        finally:
+            cursor.close()
+            conexion.close()
+
+    except ValueError:
+        print("El minuto debe ser un número válido.")
+
 
 def modificar_gol():
     id_gol = input("ID del gol a modificar: ")
@@ -153,7 +157,12 @@ def modificar_gol():
         if not validar_plazo_gol(gol[0]):
             return
 
-        minuto = int(input("Nuevo minuto: "))
+        try:
+            minuto = int(input("Nuevo minuto: "))
+        except ValueError:
+            print("El minuto debe ser un número válido.")
+            return
+
         autogol = input("¿Fue autogol? (s/n): ").lower()
 
         if minuto < 0 or autogol not in ("s", "n"):
@@ -169,7 +178,7 @@ def modificar_gol():
         conexion.commit()
         print("Gol modificado correctamente.")
 
-    except (mysql.connector.Error, ValueError) as error:
+    except mysql.connector.Error as error:
         conexion.rollback()
         print("Error:", error)
 
@@ -205,7 +214,11 @@ def eliminar_gol():
         )
 
         conexion.commit()
-        print("Gol eliminado correctamente.")
+
+        if cursor.rowcount > 0:
+            print("Gol eliminado correctamente.")
+        else:
+            print("No se encontró el gol.")
 
     except mysql.connector.Error as error:
         conexion.rollback()
@@ -215,74 +228,72 @@ def eliminar_gol():
         cursor.close()
         conexion.close()
 
+
 def mostrar_resultado():
     id_partido = input("ID del partido: ")
 
     conexion = conectar()
     cursor = conexion.cursor()
 
-    cursor.execute(
-        """
-        SELECT id_equipo_local, id_equipo_visitante
-        FROM partido
-        WHERE id_partido = %s
-        """,
-        (id_partido,)
-    )
+    try:
+        cursor.execute("""
+            SELECT id_equipo_local, id_equipo_visitante
+            FROM partido
+            WHERE id_partido = %s
+        """, (id_partido,))
 
-    partido = cursor.fetchone()
+        partido = cursor.fetchone()
 
-    if partido is None:
-        print("El partido no existe.")
+        if partido is None:
+            print("El partido no existe.")
+            return
+
+        local, visitante = partido
+
+        cursor.execute(
+            "SELECT nombre FROM equipo WHERE id_equipo = %s",
+            (local,)
+        )
+        nombre_local = cursor.fetchone()[0]
+
+        cursor.execute(
+            "SELECT nombre FROM equipo WHERE id_equipo = %s",
+            (visitante,)
+        )
+        nombre_visitante = cursor.fetchone()[0]
+
+        goles_local = 0
+        goles_visitante = 0
+
+        cursor.execute("""
+            SELECT pp.id_equipo, g.autogol
+            FROM gol g
+            JOIN planilla_partido pp
+                ON g.id_partido = pp.id_partido
+                AND g.ci_jugador = pp.ci_jugador
+            WHERE g.id_partido = %s
+        """, (id_partido,))
+
+        for equipo, autogol in cursor.fetchall():
+            if equipo == local:
+                if autogol:
+                    goles_visitante += 1
+                else:
+                    goles_local += 1
+            else:
+                if autogol:
+                    goles_local += 1
+                else:
+                    goles_visitante += 1
+
+        print(
+            f"Resultado: {nombre_local} {goles_local} - "
+            f"{goles_visitante} {nombre_visitante}"
+        )
+
+    finally:
         cursor.close()
         conexion.close()
-        return
-
-    local, visitante = partido
-    
-    cursor.execute(
-        "SELECT nombre FROM equipo WHERE id_equipo = %s",
-        (local,)
-    )
-    nombre_local = cursor.fetchone()[0]
-
-    cursor.execute(
-        "SELECT nombre FROM equipo WHERE id_equipo = %s",
-        (visitante,)
-    )
-    nombre_visitante = cursor.fetchone()[0]
-
-    goles_local = 0
-    goles_visitante = 0
-
-    cursor.execute(
-        """
-        SELECT pp.id_equipo, g.autogol
-        FROM gol g
-        JOIN planilla_partido pp
-          ON g.id_partido = pp.id_partido
-         AND g.ci_jugador = pp.ci_jugador
-        WHERE g.id_partido = %s
-        """,
-        (id_partido,)
-    )
-
-    for equipo, autogol in cursor.fetchall():
-        if equipo == local:
-            if autogol:
-                goles_visitante += 1
-            else:
-                goles_local += 1
-        else:
-            if autogol:
-                goles_local += 1
-            else:
-                goles_visitante += 1
-
-    print(f"Resultado: {nombre_local} {goles_local} - {goles_visitante} {nombre_visitante}")
-
-    cursor.close()
-    conexion.close()
 
 
 def menu_goles():
@@ -299,17 +310,21 @@ def menu_goles():
 
         if opcion == "1":
             mostrar_goles()
+
         elif opcion == "2":
             agregar_gol()
+
         elif opcion == "3":
             mostrar_resultado()
+
         elif opcion == "4":
             modificar_gol()
+
         elif opcion == "5":
             eliminar_gol()
 
-        
         elif opcion == "0":
             break
+
         else:
             print("Opción inválida")
