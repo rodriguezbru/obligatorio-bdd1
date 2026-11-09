@@ -1,6 +1,7 @@
 
 import mysql.connector
 from database import conectar
+from datetime import datetime
 
 
 
@@ -55,6 +56,19 @@ def validar_partido(cursor, torneo, fecha, local, visitante,
     if local == visitante:
         print("Un equipo no puede jugar contra sí mismo.")
         return False
+
+    
+    cursor.execute("""
+        SELECT COUNT(*)
+        FROM equipo
+        WHERE id_equipo IN (%s, %s)
+        AND id_torneo = %s
+    """, (local, visitante, torneo))
+
+    if cursor.fetchone()[0] != 2:
+        print("Los dos equipos deben pertenecer al torneo.")
+        return False
+
 
     cursor.execute("""
         SELECT COUNT(*)
@@ -162,11 +176,83 @@ def agregar_partido():
         conexion.close()
 
 
+def modificar_partido():
+    id_partido = int(input("ID del partido a modificar: "))
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT estado, dia, id_turno,
+                   nombre_cancha, id_complejo
+            FROM partido
+            WHERE id_partido = %s
+        """, (id_partido,))
+
+        partido = cursor.fetchone()
+
+        if partido is None:
+            print("El partido no existe.")
+            return
+
+        estado, dia_actual, turno_actual, cancha_actual, complejo_actual = partido
+
+        if estado == "jugado" or estado == "cancelado":
+            print("No se puede modificar un partido jugado o cancelado.")
+            return
+
+        print(f"Día actual: {dia_actual}")
+        print(f"Turno actual: {turno_actual}")
+        print(f"Cancha actual: {cancha_actual}")
+        print(f"Complejo actual: {complejo_actual}")
+
+        dia = input("Nuevo día (AAAA-MM-DD): ")
+        turno = int(input("Nuevo ID del turno: "))
+        cancha = input("Nueva cancha: ")
+        complejo = int(input("Nuevo ID del complejo: "))
+
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM partido
+            WHERE dia = %s
+              AND id_turno = %s
+              AND nombre_cancha = %s
+              AND id_complejo = %s
+              AND estado != 'cancelado'
+              AND id_partido != %s
+        """, (dia, turno, cancha, complejo, id_partido))
+
+        if cursor.fetchone()[0] > 0:
+            print("La cancha ya está ocupada en ese horario.")
+            return
+
+        cursor.execute("""
+            UPDATE partido
+            SET dia = %s,
+                id_turno = %s,
+                nombre_cancha = %s,
+                id_complejo = %s
+            WHERE id_partido = %s
+        """, (dia, turno, cancha, complejo, id_partido))
+
+        conexion.commit()
+        print("Partido modificado correctamente.")
+
+    except (mysql.connector.Error, ValueError) as error:
+        conexion.rollback()
+        print("Error al modificar partido:", error)
+
+    finally:
+        cursor.close()
+        conexion.close()
+
+
 def cambiar_estado_partido():
     id_partido = int(input("ID del partido: "))
     estado = input(
         "Nuevo estado (programado, jugado, postergado, cancelado): "
-    )
+    ).lower()
 
     if estado not in ("programado", "jugado", "postergado", "cancelado"):
         print("Estado inválido.")
@@ -176,16 +262,47 @@ def cambiar_estado_partido():
     cursor = conexion.cursor()
 
     try:
-        cursor.execute(
-            "UPDATE partido SET estado = %s WHERE id_partido = %s",
-            (estado, id_partido)
-        )
+        cursor.execute("""
+            SELECT p.estado, p.dia, t.hora_inicio, t.hora_fin
+            FROM partido p
+            JOIN turno t ON p.id_turno = t.id_turno
+            WHERE p.id_partido = %s
+        """, (id_partido,))
+
+        datos = cursor.fetchone()
+
+        if datos is None:
+            print("El partido no existe.")
+            return
+
+        estado_actual, dia, hora_inicio, hora_fin = datos
+
+        if estado_actual == "jugado":
+            print("No se puede cambiar el estado de un partido jugado.")
+            return
+
+        if estado == "jugado":
+            fin = datetime.combine(
+                dia,
+                (datetime.min + hora_fin).time()
+            )
+
+            if fin > datetime.now():
+                print("No se puede marcar como jugado un partido que no terminó.")
+                return
+
+        cursor.execute("""
+            UPDATE partido
+            SET estado = %s
+            WHERE id_partido = %s
+        """, (estado, id_partido))
+
         conexion.commit()
 
         if cursor.rowcount > 0:
             print("Estado actualizado correctamente.")
         else:
-            print("No se encontró el partido o ya tenía ese estado.")
+            print("El partido ya tenía ese estado.")
 
     except mysql.connector.Error as error:
         conexion.rollback()
@@ -196,12 +313,53 @@ def cambiar_estado_partido():
         conexion.close()
 
 
+
+def eliminar_partido():
+    id_partido = input("ID del partido a eliminar: ")
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT estado FROM partido WHERE id_partido = %s",
+            (id_partido,)
+        )
+
+        partido = cursor.fetchone()
+
+        if partido is None:
+            print("El partido no existe.")
+            return
+
+        if partido[0] == "jugado":
+            print("No se puede eliminar un partido jugado.")
+            return
+
+        cursor.execute(
+            "DELETE FROM partido WHERE id_partido = %s",
+            (id_partido,)
+        )
+
+        conexion.commit()
+        print("Partido eliminado correctamente.")
+
+    except mysql.connector.Error as error:
+        conexion.rollback()
+        print("No se pudo eliminar el partido:", error)
+
+    finally:
+        cursor.close()
+        conexion.close()
+
 def menu_partidos():
     while True:
         print("\n===== GESTIÓN DE PARTIDOS =====")
         print("1. Mostrar partidos")
         print("2. Agregar partido")
         print("3. Cambiar estado de un partido")
+        print("4. Eliminar partido")
+        print("5. Modificar partido")
         print("0. Volver")
 
         opcion = input("Seleccione una opción: ")
@@ -212,6 +370,12 @@ def menu_partidos():
             agregar_partido()
         elif opcion == "3":
             cambiar_estado_partido()
+
+        elif opcion == "4":
+            eliminar_partido()
+
+        elif opcion == "5":
+            modificar_partido()
         elif opcion == "0":
             break
         else:

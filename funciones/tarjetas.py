@@ -28,10 +28,21 @@ def mostrar_tarjetas():
     conexion.close()
 
 
+
 def agregar_tarjeta():
     id_partido = input("ID del partido: ")
     ci = input("Cédula del jugador: ")
-    minuto = int(input("Minuto de la tarjeta: "))
+
+    try:
+        minuto = int(input("Minuto de la tarjeta: "))
+    except ValueError:
+        print("El minuto debe ser un número.")
+        return
+
+    if minuto < 0:
+        print("El minuto no puede ser negativo.")
+        return
+
     color = input("Color (amarilla/roja): ").lower()
 
     if color not in ("amarilla", "roja"):
@@ -42,17 +53,23 @@ def agregar_tarjeta():
     cursor = conexion.cursor()
 
     try:
-        
-        cursor.execute(
-            """
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM planilla_partido
+            WHERE id_partido = %s
+            AND ci_jugador = %s
+        """, (id_partido, ci))
+
+        if cursor.fetchone()[0] == 0:
+            print("El jugador no figura en la planilla del partido.")
+            return
+
+        cursor.execute("""
             INSERT INTO tarjeta
             (id_partido, ci_jugador, minuto, color)
             VALUES (%s, %s, %s, %s)
-            """,
-            (id_partido, ci, minuto, color)
-        )
+        """, (id_partido, ci, minuto, color))
 
-        
         if color == "roja":
             sancionar_por_roja(cursor, id_partido, ci)
 
@@ -60,8 +77,6 @@ def agregar_tarjeta():
             sancionar_por_amarillas(cursor, id_partido, ci)
 
         conexion.commit()
-
-
         print("Tarjeta registrada correctamente.")
 
     except mysql.connector.Error as error:
@@ -71,6 +86,7 @@ def agregar_tarjeta():
     finally:
         cursor.close()
         conexion.close()
+
 
 
 def sancionar_por_roja(cursor, id_partido, ci):

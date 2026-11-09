@@ -189,6 +189,18 @@ def agregar_jugador_equipo():
             print("El jugador no pertenece a la facultad del equipo.")
             return
 
+        
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM equipo_jugador_torneo
+            WHERE ci_jugador = %s
+            AND id_torneo = %s
+        """, (ci, id_torneo))
+
+        if cursor.fetchone()[0] > 0:
+            print("El jugador ya está inscrito en un equipo de este torneo.")
+            return
+
         cursor.execute(
             """
             SELECT COUNT(*)
@@ -241,6 +253,59 @@ def agregar_jugador_equipo():
         conexion.close()
 
 
+def eliminar_jugador_equipo():
+    id_equipo = input("ID del equipo: ")
+    ci = input("Cédula del jugador a quitar: ")
+
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT e.id_torneo, e.ci_capitan, t.estado
+            FROM equipo e
+            JOIN torneo t ON e.id_torneo = t.id_torneo
+            WHERE e.id_equipo = %s
+        """, (id_equipo,))
+
+        equipo = cursor.fetchone()
+
+        if equipo is None:
+            print("El equipo no existe.")
+            return
+
+        torneo, capitan, estado = equipo
+
+        if estado != "inscripción":
+            print("No se puede modificar el plantel fuera de inscripción.")
+            return
+
+        if ci == capitan:
+            print("Primero tenés que asignar otro capitán.")
+            return
+
+        cursor.execute("""
+            DELETE FROM equipo_jugador_torneo
+            WHERE id_equipo = %s
+            AND id_torneo = %s
+            AND ci_jugador = %s
+        """, (id_equipo, torneo, ci))
+
+        conexion.commit()
+
+        if cursor.rowcount > 0:
+            print("Jugador eliminado del plantel.")
+        else:
+            print("El jugador no pertenece a ese plantel.")
+
+    except mysql.connector.Error as error:
+        conexion.rollback()
+        print("Error:", error)
+
+    finally:
+        cursor.close()
+        conexion.close()
+
 def asignar_capitan():
     id_equipo = input("ID del equipo: ")
     ci = input("Cédula del nuevo capitán: ")
@@ -291,7 +356,8 @@ def menu_equipos():
         print("4. Eliminar equipo")
         print("5. Mostrar plantel")
         print("6. Agregar jugador al equipo") 
-        print("7. Asignar capitán")      
+        print("7. Asignar capitán") 
+        print("8. Quitar jugador del equipo")     
         print("0. Volver")
 
         opcion = input("Seleccione una opción: ")
@@ -316,6 +382,9 @@ def menu_equipos():
 
         elif opcion == "7":
             asignar_capitan()
+
+        elif opcion == "8":
+            eliminar_jugador_equipo()
 
         elif opcion == "0":
             break
